@@ -1,111 +1,223 @@
-# rumble — Xbox Wireless Controller Linux Kernel Driver
+# rumble — Linux Character-Device Driver for the Xbox Wireless Controller
 
-> **Team:** PathFinders  
-> **Hardware:** Xbox Wireless Controller Model 1708 (USB, VID `0x045E` PID `0x02FD`)  
-> **Kernel:** Linux 6.4+
+> Academic systems project focused on USB driver development, raw controller I/O, and Linux user-space integration.
 
-`rumble` is a loadable Linux kernel module that exposes the Xbox Wireless
-Controller (Model 1708) as a character device at `/dev/rumble0`.  It bypasses
-the Linux Input Subsystem entirely, giving applications direct access to raw
-GIP input reports and full control of the rumble motors via `ioctl`.
+`rumble` is a Linux kernel module and user-space tooling stack built around the Xbox Wireless Controller (Model 1708) over wired USB. Instead of exposing the controller through the standard Linux Input Subsystem, the project implements a custom character-device interface at `/dev/rumble0`.
 
-The wired Model 1708 uses Microsoft's GIP (Gaming Input Protocol), not legacy
-HID. This driver parses GIP input reports (type 0x20) and sends GIP rumble
-commands.
+The project was developed to explore:
+- Linux USB driver architecture
+- URB handling and interrupt transfers
+- Character-device interfaces
+- User/kernel ABI design
+- User-space controller tooling
+- uinput-based desktop input injection
+- ROS 2 integration and robotics teleoperation
+
+The repository includes:
+- a Linux kernel driver
+- user-space debugging tools
+- a DearPyGui-based controller dashboard
+- a controller-to-mouse mapper using `uinput`
+- a ROS 2 teleoperation demo
+
+The implementation intentionally stays lightweight and educational rather than attempting to become a production input framework.
 
 ---
 
-## Project layout
+# Features
 
-```
-rumble/
+## Kernel driver
+- Custom Linux kernel module (`rumble.ko`)
+- USB interrupt-IN handling
+- GIP-style Xbox controller packet parsing
+- Character device interface (`/dev/rumble0`)
+- Blocking/nonblocking reads
+- `poll()` support
+- `ioctl()`-based rumble control
+- Hotplug/disconnect handling
+- Ring-buffered packet delivery
+
+## User-space tooling
+- Live packet reader (`tools/test_read`)
+- DearPyGui controller visualizer
+- Linux desktop mouse mapper (`uinput`)
+- ROS 2 teleoperation node
+
+## Desktop integration
+- Wayland-compatible virtual mouse injection
+- X11-compatible virtual mouse injection
+- Controller-driven cursor movement and scrolling
+
+---
+
+# Repository Layout
+
+```text
+rumble-device-driver/
 ├── driver/
-│   ├── rumble.c          # Kernel module source
-│   ├── rumble.h          # Shared structs & ioctl definitions
-│   └── Makefile          # Kbuild-compatible Makefile
-├── tools/
-│   ├── test_read.c       # User-space test program
+│   ├── rumble.c
+│   ├── rumble.h
 │   └── Makefile
-├── ros2/
-│   ├── rumble_teleop/
-│   │   ├── rumble_teleop_node.py
-│   │   ├── package.xml
-│   │   └── setup.py
+│
+├── tools/
+│   ├── test_read.c
+│   └── Makefile
+│
+├── rumble_dash/
+│   ├── pyproject.toml
+│   ├── README.md
+│   └── rumble_dash/
+│       ├── abi.py
+│       ├── reader.py
+│       ├── store.py
+│       ├── hotplug.py
+│       └── ui/
+│
+├── mouse/
+│   ├── rumble_mouse.py
+│   ├── 60-rumble-uinput.rules
 │   └── README.md
-└── README.md             # This file
+│
+├── ros2/
+│   ├── README.md
+│   └── rumble_teleop/
+│
+└── README.md
 ```
 
 ---
 
-## 1. Prerequisites
+# Hardware Target
 
-### Kernel build tools
+The project targets the Xbox Wireless Controller (Model 1708) over wired USB.
+
+The exact USB PID may vary depending on firmware revision and connection mode. The repository currently targets the wired USB configuration used during development and testing.
+
+To verify the controller on your system:
+
+```bash
+lsusb | grep 045e
+```
+
+Example output:
+
+```text
+Bus 001 Device 003: ID 045e:02dd Microsoft Corp. Xbox One Controller
+```
+
+---
+
+# Architecture Overview
+
+## Kernel-side
+
+```text
+Xbox Controller
+       │
+ USB Interrupt Transfers
+       │
+┌───────────────────────┐
+│    rumble.ko driver   │
+│                       │
+│  - URB handling       │
+│  - GIP parsing        │
+│  - ring buffer        │
+│  - ioctl rumble       │
+└───────────────────────┘
+       │
+       ▼
+ /dev/rumble0
+```
+
+The driver bypasses:
+
+* SDL
+* `xboxdrv`
+* `evdev`
+* the Linux Input Subsystem
+* `hidraw`
+
+Applications read structured controller packets directly from `/dev/rumble0`.
+
+---
+
+## User-space
+
+```text
+/dev/rumble0
+       │
+       ├── test_read
+       ├── DearPyGui dashboard
+       ├── ROS 2 teleop
+       └── uinput mouse mapper
+```
+
+---
+
+# Build Requirements
+
+## Kernel build dependencies
+
+Ubuntu/Debian:
 
 ```bash
 sudo apt update
-sudo apt install -y build-essential linux-headers-$(uname -r)
+sudo apt install -y \
+    build-essential \
+    linux-headers-$(uname -r)
 ```
 
-### User-space build tools
+## User-space dependencies
 
 ```bash
-sudo apt install -y gcc make
-```
-
-### ROS 2 (for the teleop node)
-
-Install ROS 2 Humble or Iron following the official guide:  
-https://docs.ros.org/en/humble/Installation.html
-
-### TurtleBot3 packages
-
-```bash
-sudo apt install -y ros-humble-turtlebot3 ros-humble-turtlebot3-simulations \
-                    ros-humble-gazebo-ros-pkgs
-export TURTLEBOT3_MODEL=burger
+sudo apt install -y gcc make python3 python3-pip
 ```
 
 ---
 
-## 2. Building the driver
+# Building the Kernel Module
 
 ```bash
-cd rumble/driver
+cd driver
 make
 ```
 
-This produces `rumble.ko`.  If you need to build against a different kernel
-tree (e.g., for cross-compilation):
+This produces:
+
+```text
+rumble.ko
+```
+
+To clean:
 
 ```bash
-make KDIR=/path/to/kernel/source
+make clean
 ```
 
 ---
 
-## 3. Loading the module
+# Loading the Driver
+
+## Insert module
 
 ```bash
-# Load
 sudo insmod driver/rumble.ko
-
-# Verify it loaded
-dmesg | grep rumble
-# Expected: [rumble] module loaded (major=<N>)
-# After plugging in controller:
-# [rumble] Xbox 1708 controller connected (bus 1 dev 3)
 ```
 
-To load automatically at boot, copy `rumble.ko` to the modules directory and
-run `depmod`:
+## Verify load
 
 ```bash
-sudo cp driver/rumble.ko /lib/modules/$(uname -r)/extra/
-sudo depmod -a
-echo 'rumble' | sudo tee /etc/modules-load.d/rumble.conf
+dmesg | grep rumble
 ```
 
-To unload:
+Example:
+
+```text
+[rumble] module loaded
+[rumble] controller connected
+```
+
+## Remove module
 
 ```bash
 sudo rmmod rumble
@@ -113,136 +225,297 @@ sudo rmmod rumble
 
 ---
 
-## 4. Permissions — `/dev/rumble0`
+# Device Permissions
 
-After `insmod`, udev creates `/dev/rumble0`.  By default it is owned by
-`root:root` with mode `0600`.  Grant access to your user in one of two ways:
+The driver creates:
 
-### Option A — udev rule (recommended, persistent)
+```text
+/dev/rumble0
+```
 
-Create `/etc/udev/rules.d/99-rumble.rules`:
+By default this is root-owned.
+
+## Recommended: udev rule
+
+Create:
+
+```text
+/etc/udev/rules.d/99-rumble.rules
+```
+
+Contents:
 
 ```udev
 SUBSYSTEM=="rumble", KERNEL=="rumble0", MODE="0660", GROUP="input"
 ```
 
-Then reload rules and add your user to the `input` group:
+Reload rules:
 
 ```bash
 sudo udevadm control --reload-rules
 sudo udevadm trigger
+```
+
+Add your user to the input group:
+
+```bash
 sudo usermod -aG input $USER
-# Log out and back in for group change to take effect
 ```
 
-### Option B — one-shot (for testing only)
-
-```bash
-sudo chmod a+rw /dev/rumble0
-```
+Log out and back in afterward.
 
 ---
 
-## 5. Running the test program
+# User-Space Test Tool
+
+The repository includes a small CLI packet reader.
+
+## Build
 
 ```bash
-cd rumble/tools
+cd tools
 make
-sudo ./test_read           # or just ./test_read if permissions are set
 ```
 
-### Expected output
+## Run
 
-```
-rumble: opened /dev/rumble0
-Press Enter to fire a test rumble.  Ctrl+C to quit.
-
-[12345.678 ms] BTN=(none)              LT=  0 RT=  0  LX=+0    LY=+0     RX=+0    RY=+0
-[12353.690 ms] BTN=A                   LT=  0 RT=  0  LX=+0    LY=+0     RX=+0    RY=+0
+```bash
+./test_read
 ```
 
-Press **Enter** at any time to fire a 500 ms test rumble at 50% intensity.
-Press **Ctrl+C** to exit.
+Example output:
+
+```text
+BTN=A LT=0 RT=0 LX=0 LY=0 RX=0 RY=0
+```
+
+Press:
+
+* `Enter` → test rumble pulse
+* `Ctrl+C` → exit
 
 ---
 
-## 6. Debugging tools
+# DearPyGui Dashboard
 
-### Kernel log
+The repository includes a Linux-native controller dashboard implemented with DearPyGui.
+
+Features:
+
+* live button visualization
+* analog stick rendering
+* trigger visualization
+* packet timing metrics
+* circularity testing
+* rumble controls
+* debug packet inspection
+
+## Install dependencies
 
 ```bash
-# All rumble messages since module load
+cd rumble_dash
+pip install -e .
+```
+
+## Run
+
+```bash
+python -m rumble_dash
+```
+
+---
+
+# Mouse Mapper
+
+The repository includes a lightweight controller-to-mouse mapper implemented using Linux `uinput`.
+
+Features:
+
+* left stick → cursor movement
+* right stick → scrolling
+* LS click → left click
+* RS click → right click
+* LB → middle click
+* LT precision mode
+* Wayland support
+* X11 support
+
+The mapper reads `/dev/rumble0` and emits a virtual mouse device through `/dev/uinput`.
+
+## Install dependencies
+
+```bash
+pip install python-uinput
+```
+
+## Load uinput module
+
+```bash
+sudo modprobe uinput
+```
+
+## Install udev rule
+
+```bash
+sudo cp mouse/60-rumble-uinput.rules /etc/udev/rules.d/
+sudo udevadm control --reload-rules
+sudo udevadm trigger
+```
+
+## Run
+
+```bash
+python mouse/rumble_mouse.py
+```
+
+---
+
+# ROS 2 Teleoperation
+
+The repository includes a ROS 2 teleop node for TurtleBot3 simulation.
+
+Features:
+
+* controller-driven robot movement
+* stick-based teleoperation
+* collision-triggered rumble feedback
+
+See:
+
+```text
+ros2/README.md
+```
+
+for full setup instructions.
+
+---
+
+# ABI Overview
+
+The driver exposes controller packets through a shared ABI.
+
+Kernel-side structure:
+
+```c
+struct rumble_input {
+    uint16_t buttons;
+    uint8_t  lt;
+    uint8_t  rt;
+    int16_t  lx, ly, rx, ry;
+    uint16_t _pad;
+    uint64_t timestamp_us;
+} __attribute__((packed));
+```
+
+The dashboard, teleop node, and mouse mapper all consume this same ABI.
+
+---
+
+# Debugging
+
+## Kernel logs
+
+```bash
 dmesg | grep rumble
-
-# Tail in real time
-sudo dmesg -w | grep rumble
 ```
 
-### usbmon — capture raw USB traffic
+Live tail:
 
 ```bash
-# Load the usbmon kernel module
+sudo dmesg -w
+```
+
+---
+
+## USB traffic inspection
+
+```bash
 sudo modprobe usbmon
-
-# Find the bus number for your controller
-lsusb | grep "045e:02fd"
-# e.g. Bus 001 Device 003: ID 045e:02fd Microsoft Corp. Xbox Wireless Controller
-
-# Capture on bus 1 (adjust number to match)
-sudo cat /sys/kernel/debug/usb/usbmon/1u | head -200
-# Or use Wireshark with the USBPCap / usbmon interface
 ```
 
-### Hotplug stress test
-
-With `test_read` running, repeatedly unplug and replug the controller:
+Find bus:
 
 ```bash
-# In one terminal
-sudo ./tools/test_read
-
-# Unplug/replug the USB cable several times
-# Expected: program prints "controller disconnected" then "controller connected"
-# after each cycle, and continues reading data without crashing
+lsusb
 ```
 
-Check `dmesg | grep rumble` for any error messages after each cycle.
-
----
-
-## 7. ROS 2 demo with TurtleBot3 Gazebo
-
-See [`ros2/README.md`](ros2/README.md) for full instructions.  Quick start:
+Capture:
 
 ```bash
-# Terminal 1 — simulation
-export TURTLEBOT3_MODEL=burger
-ros2 launch turtlebot3_gazebo turtlebot3_world.launch.py
-
-# Terminal 2 — teleop node
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-sudo chmod a+rw /dev/rumble0   # or use udev rule
-ros2 run rumble_teleop rumble_teleop_node
+sudo cat /sys/kernel/debug/usb/usbmon/1u
 ```
 
-Drive with the left stick.  Collisions trigger a 300 ms haptic pulse.
+---
+
+## Device visibility
+
+Check created devices:
+
+```bash
+ls -l /dev/rumble0
+```
+
+Check uinput virtual mouse:
+
+```bash
+libinput list-devices
+```
+
+or under X11:
+
+```bash
+xinput list
+```
 
 ---
 
-## 8. Known limitations
+# Known Limitations
 
-| Limitation | Details |
-|-----------|---------|
-| **Wired USB only** | The driver uses the USB HID interface. Xbox wireless dongles use a proprietary RF protocol not covered here. |
-| **Single controller** | Only one controller (minor 0) is supported at a time. A second controller is rejected with `EBUSY`. |
-| **Basic rumble only** | The driver exposes left and right motor intensity. The Xbox 1708 also has trigger rumble motors (LT/RT), which this driver does not expose. |
-| **No force-feedback API** | The driver deliberately bypasses the Linux FF (force feedback) subsystem. Use the `RUMBLE_SET_MOTORS` ioctl directly. |
-| **Model 1708 only** | Only VID `0x045E` PID `0x02FD` is in the ID table. Other Xbox controller variants have different product IDs and may use different report formats. |
-| **No kernel Input events** | Because the Input Subsystem is bypassed, standard tools like `evtest`, `jstest`, and `xboxdrv` will not see this controller while the module is loaded. |
+| Limitation                              | Details                                                                               |
+| --------------------------------------- | ------------------------------------------------------------------------------------- |
+| Wired USB only                          | Wireless dongle support is not implemented                                            |
+| Single-controller focus                 | The repository is designed around one active controller                               |
+| No Linux Input Subsystem integration    | Standard joystick tools will not see the controller                                   |
+| No force-feedback subsystem integration | Rumble uses a custom ioctl interface                                                  |
+| Experimental protocol handling          | The project targets a specific controller configuration used during development       |
+| Academic scope                          | The repository prioritizes clarity and educational value over production completeness |
 
 ---
 
-## Licence
+# Design Goals
 
-GPL-2.0-only — see individual source files.
+This project intentionally prioritizes:
+
+* clarity over abstraction
+* Linux-native interfaces
+* direct USB interaction
+* educational readability
+* small user-space tools
+* practical debugging visibility
+
+The repository intentionally avoids:
+
+* large frameworks
+* complex daemon architectures
+* plugin systems
+* heavyweight remapping stacks
+* unnecessary abstraction layers
+
+---
+
+# Tested Environment
+
+The project was primarily tested on:
+
+* Linux kernel 6.4+
+* Ubuntu-based distributions
+* Wayland and X11 desktop sessions
+* Python 3.11+
+
+---
+
+# License
+
+GPL-2.0-only.
+
+See individual source files for details.
