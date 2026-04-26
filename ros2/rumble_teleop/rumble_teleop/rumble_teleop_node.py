@@ -26,9 +26,9 @@ On a detected collision the node fires the rumble motors at 80% for
 Publishing rate is capped at 20 Hz.
 """
 
-import ctypes
 import fcntl
 import os
+import select
 import struct
 import threading
 import time
@@ -63,8 +63,7 @@ RUMBLE_MOTORS_FMT = 'BB'
 
 # ioctl number for RUMBLE_SET_MOTORS
 # _IOW('R', 1, struct rumble_motors)  →  _IOW(0x52, 1, 2-byte struct)
-# _IOW = (3 << 30) | (size << 16) | (type << 8) | nr
-#       = 0xC0000000 | (2 << 16) | (0x52 << 8) | 1
+# _IOW = (1 << 30) | (size << 16) | (type << 8) | nr
 RUMBLE_IOC_MAGIC = ord('R')    # 0x52
 _IOC_WRITE = 1
 _IOC_SIZEBITS = 14
@@ -198,7 +197,6 @@ class RumbleTeleopNode(Node):
                     continue
 
             # Poll the fd with a short timeout so we can check stop_event
-            import select
             try:
                 readable, _, _ = select.select([self._fd], [], [], 0.05)
             except (OSError, ValueError):

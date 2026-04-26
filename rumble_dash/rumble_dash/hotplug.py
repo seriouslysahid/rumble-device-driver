@@ -4,9 +4,7 @@ hotplug.py — Optional pyudev-based USB hotplug monitor.
 If pyudev is not installed, start() is a no-op and logs one message.
 The reader thread remains authoritative; hotplug only improves latency.
 
-Xbox 1708 wired USB: VID 045E, PID 02FD (driver uses 02DD in id_table comment
-but rumble.h defines XBOX_PRODUCT_ID 0x02DD — the actual wired target is 02FD).
-We watch both to be safe.
+Watches for Xbox controller USB events (VID 045E) to nudge reconnection.
 """
 
 import threading

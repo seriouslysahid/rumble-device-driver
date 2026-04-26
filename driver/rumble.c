@@ -4,22 +4,22 @@
  *
  * Team:    PathFinders
  * Target:  Xbox Wireless Controller Model 1708, USB (VID 0x045E PID 0x02FD)
- * Kernel:  Linux 6.1 LTS+
+ * Kernel:  Linux 6.4+
  *
  * Overview
  * --------
  * This module registers a USB driver that binds to the Xbox 1708 controller
- * and exposes raw HID input to user space through a character device at
+ * and exposes raw GIP input to user space through a character device at
  * /dev/rumble0.  It deliberately bypasses the Linux Input Subsystem so that
- * applications can receive full 20-byte reports and control rumble motors
+ * applications can receive GIP input reports and control rumble motors
  * without requiring evdev, joydev or any other in-tree HID glue.
  *
  * Character device interface
- *   open()   – check connected flag; increment open count
+ *   open()   – check connected flag; take kref reference
  *   read()   – dequeue one struct rumble_input from the ring buffer;
  *              blocks until data is available (or O_NONBLOCK → -EAGAIN)
- *   ioctl()  – RUMBLE_SET_MOTORS: send an 8-byte rumble packet via USB
- *   release()– decrement open count
+ *   ioctl()  – RUMBLE_SET_MOTORS: send a 13-byte GIP rumble packet via USB
+ *   release()– drop kref reference
  *
  * Ring buffer
  *   64-slot power-of-two ring protected by a spinlock.  The URB completion
@@ -551,11 +551,8 @@ static const struct file_operations rumble_fops = {
  * rumble_probe() - called by the USB core when an Xbox 1708 controller is
  *   plugged in (or when the module is loaded with the device already present).
  *
- * Responsibilities:
- *   1. Allocate and initialise struct rumble_dev.
- *   2. Find the interrupt IN and OUT endpoints on interface 0.
- *   3. Register a character device (major allocated at module init).
- *   4. Allocate a DMA-coherent buffer and a URB; submit the URB.
+ * Sets up the per-device structure, finds endpoints, registers the cdev,
+ * allocates a DMA buffer + URB, and starts the interrupt-IN data stream.
  */
 static int rumble_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
@@ -719,15 +716,9 @@ err_put_dev:
  * rumble_disconnect() - called when the controller is unplugged or the
  *   module is being removed while the device is connected.
  *
- * The function:
- *   1. Sets the disconnected flag so read() / ioctl() notice and return
- *      -ENODEV to user space.
- *   2. Wakes all sleeping read() callers.
- *   3. Kills (cancels synchronously) the in-flight URB.
- *   4. Destroys the /dev/rumble0 node and unregisters the cdev.
- *   5. Frees URB and DMA buffer.
- *   6. Drops the initial kref; actual memory free happens when all open
- *      file descriptors are closed.
+ * Marks the device as disconnected, wakes blocked readers, kills the
+ * in-flight URB, tears down the /dev node and cdev, and drops the kref.
+ * Actual memory free happens when all open file descriptors are closed.
  */
 static void rumble_disconnect(struct usb_interface *intf)
 {

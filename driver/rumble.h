@@ -4,7 +4,7 @@
  *
  * Team: PathFinders
  * Target: Xbox Wireless Controller Model 1708 (USB, VID 0x045E PID 0x02FD)
- * Kernel: Linux 6.1 LTS+
+ * Kernel: Linux 6.4+
  */
 
 #ifndef RUMBLE_H
