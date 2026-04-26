@@ -1,0 +1,2 @@
+# Grant access to /dev/uinput for the 'input' group
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", TAG+="uaccess"
