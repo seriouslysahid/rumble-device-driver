@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rumble-dash"
+version = "1.0.0"
+description = "DearPyGui dashboard for /dev/rumble0 (Xbox 1708 controller)"
+requires-python = ">=3.11"
+dependencies = ["dearpygui>=2.0"]
+
+[project.optional-dependencies]
+hotplug = ["pyudev>=0.24"]
+
+[project.scripts]
+rumble-dash = "rumble_dash.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rumble_dash*"]
