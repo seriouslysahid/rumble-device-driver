@@ -247,7 +247,28 @@ static void rumble_urb_complete(struct urb *urb)
 		goto resubmit;
 
 	if (buf[0] != GIP_CMD_INPUT && buf[0] != GIP_CMD_VIRTUAL_KEY) {
-		pr_info_ratelimited("rumble: received non-input packet type 0x%02x\n", buf[0]);
+		/*
+		 * GIP protocol requires ACK for any packet where flags byte
+		 * (buf[2]) has bit 0 set. This includes:
+		 *   0x02 = device announce (must ACK to advance handshake)
+		 *   0x03 = power/status report
+		 * Without ACKing these, the controller stays in handshake
+		 * mode and never sends type 0x20 input reports.
+		 */
+		pr_info_ratelimited("[rumble] GIP packet type=0x%02x len=%d flags=0x%02x\n",
+				    buf[0], urb->actual_length,
+				    urb->actual_length >= 3 ? buf[2] : 0);
+		if (urb->actual_length >= 4 && (buf[2] & 0x01)) {
+			/* Send GIP ACK: echo packet back with ACK flag cleared */
+			uint8_t ack[4];
+			ack[0] = buf[0];
+			ack[1] = buf[1];
+			ack[2] = buf[2] & ~0x01U; /* clear needs-ACK bit */
+			ack[3] = 0x00;
+			usb_interrupt_msg(rd->udev,
+					  usb_sndintpipe(rd->udev, rd->ep_out_addr),
+					  ack, 4, &ret, 0);
+		}
 	}
 
 	/* GIP frame: byte 0 is the command type */
@@ -764,32 +785,31 @@ static int rumble_probe(struct usb_interface *intf,
 	rd->in_urb->transfer_dma   = rd->in_dma;
 	rd->in_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 
-	/* Send Xbox One initialization packet to start input streaming */
-	{
-		uint8_t *init_pkt = kmalloc(5, GFP_KERNEL);
-		if (init_pkt) {
-			int transferred;
-			/* Original Xbox One */
-			init_pkt[0] = 0x05; init_pkt[1] = 0x20; init_pkt[2] = 0x00; init_pkt[3] = 0x01; init_pkt[4] = 0x00;
-			usb_interrupt_msg(udev, usb_sndintpipe(udev, rd->ep_out_addr),
-					  init_pkt, 5, &transferred, 1000);
-			/* Firmware 2015 (PID 0x02DD) */
-			init_pkt[0] = 0x05; init_pkt[1] = 0x20; init_pkt[2] = 0x00; init_pkt[3] = 0x01; init_pkt[4] = 0x04;
-			usb_interrupt_msg(udev, usb_sndintpipe(udev, rd->ep_out_addr),
-					  init_pkt, 5, &transferred, 1000);
-			/* Xbox One S / Bluetooth */
-			init_pkt[0] = 0x05; init_pkt[1] = 0x20; init_pkt[2] = 0x00; init_pkt[3] = 0x0f; init_pkt[4] = 0x06;
-			usb_interrupt_msg(udev, usb_sndintpipe(udev, rd->ep_out_addr),
-					  init_pkt, 5, &transferred, 1000);
-			kfree(init_pkt);
-		}
-	}
-
-	/* Submit the URB — this starts the data stream */
+	/* Submit the URB FIRST — must be receiving before we send init */
 	ret = usb_submit_urb(rd->in_urb, GFP_KERNEL);
 	if (ret) {
 		pr_err("usb_submit_urb failed: %d\n", ret);
 		goto err_free_urb;
+	}
+
+	/* Send Xbox One GIP initialization packets.
+	 * These wake up the controller so it starts streaming type 0x20
+	 * input reports. Sent after URB is submitted so we catch replies.
+	 */
+	{
+		uint8_t *init_pkt = kmalloc(5, GFP_KERNEL);
+		if (init_pkt) {
+			int transferred;
+			/* Small delay to let controller settle after USB enumeration */
+			msleep(100);
+			/* Firmware 2015 (PID 0x02DD) start-input command */
+			init_pkt[0] = 0x05; init_pkt[1] = 0x20;
+			init_pkt[2] = 0x00; init_pkt[3] = 0x01; init_pkt[4] = 0x00;
+			usb_interrupt_msg(udev, usb_sndintpipe(udev, rd->ep_out_addr),
+					  init_pkt, 5, &transferred, 1000);
+			kfree(init_pkt);
+			pr_info("sent GIP start-input command\n");
+		}
 	}
 
 	rd->idev = input_allocate_device();
