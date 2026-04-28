@@ -114,18 +114,6 @@ static bool ring_get(struct rumble_dev *rd, struct rumble_input *out)
 
 static void rumble_urb_complete(struct urb *urb)
 {
- * The wired Xbox 1708 (0x02FD) uses GIP protocol:
- *   - Type 0x20: 18-byte input report with buttons/axes
- *   - Type 0x07: virtual-key report (Guide button) — requires ACK
- *   - Other types: silently ignored
- *
- * GIP input report (type 0x20):
- *   [0] type(0x20)  [1] seq  [2] flags  [3] len(0x0e)
- *   [4] buttons_lo  [5] buttons_hi
- *   [6-7] LT(u16)  [8-9] RT(u16)  [10-11] LX  [12-13] LY  [14-15] RX  [16-17] RY
- */
-static void rumble_urb_complete(struct urb *urb)
-{
 	struct rumble_dev *rd = urb->context;
 	uint8_t *buf = urb->transfer_buffer;
 	struct rumble_input inp;
