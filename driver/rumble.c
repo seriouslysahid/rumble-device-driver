@@ -261,20 +261,20 @@ static void rumble_urb_complete(struct urb *urb)
 		b1 = buf[4];
 		b2 = buf[5];
 		inp.buttons = 0;
-		if (b1 & BIT(2)) inp.buttons |= BTN_MENU;
-		if (b1 & BIT(3)) inp.buttons |= BTN_VIEW;
-		if (b1 & BIT(4)) inp.buttons |= BTN_A;
-		if (b1 & BIT(5)) inp.buttons |= BTN_B;
-		if (b1 & BIT(6)) inp.buttons |= BTN_X;
-		if (b1 & BIT(7)) inp.buttons |= BTN_Y;
-		if (b2 & BIT(0)) inp.buttons |= BTN_DPAD_UP;
-		if (b2 & BIT(1)) inp.buttons |= BTN_DPAD_DOWN;
-		if (b2 & BIT(2)) inp.buttons |= BTN_DPAD_LEFT;
-		if (b2 & BIT(3)) inp.buttons |= BTN_DPAD_RIGHT;
-		if (b2 & BIT(4)) inp.buttons |= BTN_LB;
-		if (b2 & BIT(5)) inp.buttons |= BTN_RB;
-		if (b2 & BIT(6)) inp.buttons |= BTN_LS;
-		if (b2 & BIT(7)) inp.buttons |= BTN_RS;
+		if (b1 & BIT(2)) inp.buttons |= RUMBLE_BTN_MENU;
+		if (b1 & BIT(3)) inp.buttons |= RUMBLE_BTN_VIEW;
+		if (b1 & BIT(4)) inp.buttons |= RUMBLE_BTN_A;
+		if (b1 & BIT(5)) inp.buttons |= RUMBLE_BTN_B;
+		if (b1 & BIT(6)) inp.buttons |= RUMBLE_BTN_X;
+		if (b1 & BIT(7)) inp.buttons |= RUMBLE_BTN_Y;
+		if (b2 & BIT(0)) inp.buttons |= RUMBLE_BTN_DPAD_UP;
+		if (b2 & BIT(1)) inp.buttons |= RUMBLE_BTN_DPAD_DOWN;
+		if (b2 & BIT(2)) inp.buttons |= RUMBLE_BTN_DPAD_LEFT;
+		if (b2 & BIT(3)) inp.buttons |= RUMBLE_BTN_DPAD_RIGHT;
+		if (b2 & BIT(4)) inp.buttons |= RUMBLE_BTN_LB;
+		if (b2 & BIT(5)) inp.buttons |= RUMBLE_BTN_RB;
+		if (b2 & BIT(6)) inp.buttons |= RUMBLE_BTN_LS;
+		if (b2 & BIT(7)) inp.buttons |= RUMBLE_BTN_RS;
 
 		/* Triggers: 10-bit (0-1023) → scale to 0-255 */
 		lt_raw  = (uint16_t)buf[6] | ((uint16_t)buf[7] << 8);
@@ -317,8 +317,8 @@ static void rumble_urb_complete(struct urb *urb)
 			if (scroll_x) input_report_rel(rd->idev, REL_HWHEEL, scroll_x);
 			if (scroll_y) input_report_rel(rd->idev, REL_WHEEL, scroll_y);
 
-			input_report_key(rd->idev, BTN_LEFT, !!(inp.buttons & BTN_LB));
-			input_report_key(rd->idev, BTN_RIGHT, !!(inp.buttons & BTN_RB));
+			input_report_key(rd->idev, BTN_LEFT, !!(inp.buttons & RUMBLE_BTN_LB));
+			input_report_key(rd->idev, BTN_RIGHT, !!(inp.buttons & RUMBLE_BTN_RB));
 
 			{
 				bool lt_now = (inp.lt > 128);

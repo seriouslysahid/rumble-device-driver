@@ -42,20 +42,20 @@ struct rumble_input {
 /* -------------------------------------------------------------------------
  * Button bitmask — matches bytes 2–3 of the Xbox 1708 interrupt IN report
  * ------------------------------------------------------------------------- */
-#define BTN_MENU        (1U <<  0)   /* Menu / Start         */
-#define BTN_VIEW        (1U <<  1)   /* View / Back          */
-#define BTN_LS          (1U <<  2)   /* Left stick click     */
-#define BTN_RS          (1U <<  3)   /* Right stick click    */
-#define BTN_A           (1U <<  4)   /* A                    */
-#define BTN_B           (1U <<  5)   /* B                    */
-#define BTN_X           (1U <<  6)   /* X                    */
-#define BTN_Y           (1U <<  7)   /* Y                    */
-#define BTN_DPAD_UP     (1U <<  8)   /* D-pad Up             */
-#define BTN_DPAD_DOWN   (1U <<  9)   /* D-pad Down           */
-#define BTN_DPAD_LEFT   (1U << 10)   /* D-pad Left           */
-#define BTN_DPAD_RIGHT  (1U << 11)   /* D-pad Right          */
-#define BTN_LB          (1U << 12)   /* Left  bumper         */
-#define BTN_RB          (1U << 13)   /* Right bumper         */
+#define RUMBLE_BTN_MENU        (1U <<  0)   /* Menu / Start         */
+#define RUMBLE_BTN_VIEW        (1U <<  1)   /* View / Back          */
+#define RUMBLE_BTN_LS          (1U <<  2)   /* Left stick click     */
+#define RUMBLE_BTN_RS          (1U <<  3)   /* Right stick click    */
+#define RUMBLE_BTN_A           (1U <<  4)   /* A                    */
+#define RUMBLE_BTN_B           (1U <<  5)   /* B                    */
+#define RUMBLE_BTN_X           (1U <<  6)   /* X                    */
+#define RUMBLE_BTN_Y           (1U <<  7)   /* Y                    */
+#define RUMBLE_BTN_DPAD_UP     (1U <<  8)   /* D-pad Up             */
+#define RUMBLE_BTN_DPAD_DOWN   (1U <<  9)   /* D-pad Down           */
+#define RUMBLE_BTN_DPAD_LEFT   (1U << 10)   /* D-pad Left           */
+#define RUMBLE_BTN_DPAD_RIGHT  (1U << 11)   /* D-pad Right          */
+#define RUMBLE_BTN_LB          (1U << 12)   /* Left  bumper         */
+#define RUMBLE_BTN_RB          (1U << 13)   /* Right bumper         */
 
 /* -------------------------------------------------------------------------
  * Rumble motor command — passed via ioctl
