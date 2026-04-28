@@ -1,0 +1,18 @@
+# udev rules for rumble Xbox controller driver
+#
+# Installation:
+#   sudo cp 99-rumble.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules
+#   sudo udevadm trigger
+#
+# This rule does two things:
+# 1. Sets driver_override to "rumble" for Xbox 1708 controllers
+# 2. Sets permissions on /dev/rumble0 to allow input group access
+
+# Auto-bind Xbox 1708 to rumble driver
+ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="045e", ATTR{idProduct}=="02dd", \
+  ATTR{driver_override}="rumble", \
+  RUN+="/bin/sh -c 'echo %k > /sys/bus/usb/drivers/rumble/bind'"
+
+# Set permissions on character device (uses char subsystem)
+KERNEL=="rumble0", SUBSYSTEM=="rumble", MODE="0660", GROUP="input"

@@ -3,7 +3,7 @@
  * rumble.c — Character device driver for Xbox Wireless Controller (Model 1708)
  *
  * Team:    PathFinders
- * Target:  Xbox Wireless Controller Model 1708, USB (VID 0x045E PID 0x02FD)
+ * Target:  Xbox Wireless Controller Model 1708, USB (VID 0x045E PID 0x02DD)
  * Kernel:  Linux 6.4+
  *
  * Overview
@@ -51,7 +51,6 @@
 #include <linux/mutex.h>
 #include <linux/kref.h>
 #include <linux/poll.h>
-#include <linux/input.h>
 
 #include "rumble.h"
 
@@ -136,15 +135,6 @@ struct rumble_dev {
 
 	/* Serialises ioctl rumble transmissions */
 	struct mutex         tx_mutex;
-
-	/* Mouse emulation state */
-	struct input_dev    *idev;
-	int                  residue_x;
-	int                  residue_y;
-	int                  residue_sx;
-	int                  residue_sy;
-	bool                 lt_pressed;
-	bool                 rt_pressed;
 };
 
 /* =========================================================================
@@ -289,65 +279,6 @@ static void rumble_urb_complete(struct urb *urb)
 
 		inp._pad = 0;
 		inp.timestamp_us = (uint64_t)ktime_to_us(ktime_get());
-
-		if (rd->idev) {
-			long deadzone = 4000;
-			long lx_val = (inp.lx > deadzone) ? inp.lx - deadzone : ((inp.lx < -deadzone) ? inp.lx + deadzone : 0);
-			long ly_val = (inp.ly > deadzone) ? inp.ly - deadzone : ((inp.ly < -deadzone) ? inp.ly + deadzone : 0);
-			long rx_val = (inp.rx > deadzone) ? inp.rx - deadzone : ((inp.rx < -deadzone) ? inp.rx + deadzone : 0);
-			long ry_val = (inp.ry > deadzone) ? inp.ry - deadzone : ((inp.ry < -deadzone) ? inp.ry + deadzone : 0);
-
-			long dx_scaled = lx_val * 24 + rd->residue_x;
-			long dy_scaled = -ly_val * 24 + rd->residue_y;
-			long dsx_scaled = rx_val * 1 + rd->residue_sx;
-			long dsy_scaled = ry_val * 1 + rd->residue_sy;
-
-			int move_x = dx_scaled / 28768;
-			int move_y = dy_scaled / 28768;
-			int scroll_x = dsx_scaled / 28768;
-			int scroll_y = dsy_scaled / 28768;
-
-			rd->residue_x = dx_scaled % 28768;
-			rd->residue_y = dy_scaled % 28768;
-			rd->residue_sx = dsx_scaled % 28768;
-			rd->residue_sy = dsy_scaled % 28768;
-
-			if (move_x) input_report_rel(rd->idev, REL_X, move_x);
-			if (move_y) input_report_rel(rd->idev, REL_Y, move_y);
-			if (scroll_x) input_report_rel(rd->idev, REL_HWHEEL, scroll_x);
-			if (scroll_y) input_report_rel(rd->idev, REL_WHEEL, scroll_y);
-
-			input_report_key(rd->idev, BTN_LEFT, !!(inp.buttons & RUMBLE_BTN_LB));
-			input_report_key(rd->idev, BTN_RIGHT, !!(inp.buttons & RUMBLE_BTN_RB));
-
-			{
-				bool lt_now = (inp.lt > 128);
-				if (lt_now && !rd->lt_pressed) {
-					input_report_key(rd->idev, BTN_LEFT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_LEFT, 0);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_LEFT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_LEFT, 0);
-				}
-				rd->lt_pressed = lt_now;
-
-				bool rt_now = (inp.rt > 128);
-				if (rt_now && !rd->rt_pressed) {
-					input_report_key(rd->idev, BTN_RIGHT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_RIGHT, 0);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_RIGHT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_RIGHT, 0);
-				}
-				rd->rt_pressed = rt_now;
-			}
-
-			input_sync(rd->idev);
-		}
 
 		spin_lock_irqsave(&rd->ring_lock, flags);
 		ring_put(rd, &inp);
@@ -756,30 +687,6 @@ static int rumble_probe(struct usb_interface *intf,
 		goto err_free_urb;
 	}
 
-	rd->idev = input_allocate_device();
-	if (rd->idev) {
-		rd->idev->name = "Xbox 1708 Mouse";
-		rd->idev->id.bustype = BUS_USB;
-		rd->idev->id.vendor = le16_to_cpu(udev->descriptor.idVendor);
-		rd->idev->id.product = le16_to_cpu(udev->descriptor.idProduct);
-		rd->idev->dev.parent = &intf->dev;
-
-		__set_bit(EV_REL, rd->idev->evbit);
-		__set_bit(REL_X, rd->idev->relbit);
-		__set_bit(REL_Y, rd->idev->relbit);
-		__set_bit(REL_WHEEL, rd->idev->relbit);
-		__set_bit(REL_HWHEEL, rd->idev->relbit);
-
-		__set_bit(EV_KEY, rd->idev->evbit);
-		__set_bit(BTN_LEFT, rd->idev->keybit);
-		__set_bit(BTN_RIGHT, rd->idev->keybit);
-
-		if (input_register_device(rd->idev)) {
-			input_free_device(rd->idev);
-			rd->idev = NULL;
-		}
-	}
-
 	usb_set_intfdata(intf, rd);
 	pr_info("Xbox 1708 controller connected (bus %d dev %d)\n",
 		udev->bus->busnum, udev->devnum);
@@ -837,8 +744,6 @@ static void rumble_disconnect(struct usb_interface *intf)
 	mutex_unlock(&dev_mutex);
 
 	/* Release resources */
-	if (rd->idev)
-		input_unregister_device(rd->idev);
 	usb_free_urb(rd->in_urb);
 	usb_free_coherent(rd->udev, XBOX_PKT_SIZE, rd->in_buf, rd->in_dma);
 

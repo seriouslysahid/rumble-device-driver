@@ -1,1 +1,0 @@
-savedcmd_/home/os/Desktop/rumble/driver/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/os/Desktop/rumble/driver/Module.symvers -T /home/os/Desktop/rumble/driver/modules.order -i Module.symvers -e 
