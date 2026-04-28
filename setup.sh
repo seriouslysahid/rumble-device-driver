@@ -26,11 +26,11 @@ fi
 echo "[1/6] Checking dependencies..."
 MISSING_DEPS=""
 
-if ! command -v gcc &> /dev/null; then
+if ! command -v gcc >/dev/null 2>&1; then
     MISSING_DEPS="$MISSING_DEPS gcc"
 fi
 
-if ! command -v make &> /dev/null; then
+if ! command -v make >/dev/null 2>&1; then
     MISSING_DEPS="$MISSING_DEPS make"
 fi
 
@@ -38,16 +38,38 @@ if [ ! -d "/lib/modules/$(uname -r)/build" ]; then
     MISSING_DEPS="$MISSING_DEPS linux-headers-$(uname -r)"
 fi
 
-if ! dpkg -l | grep -q libncurses-dev; then
-    MISSING_DEPS="$MISSING_DEPS libncurses-dev"
+# Check for ncurses (try multiple methods)
+NCURSES_FOUND=0
+if pkg-config --exists ncurses 2>/dev/null; then
+    NCURSES_FOUND=1
+elif [ -f "/usr/include/ncurses.h" ] || [ -f "/usr/include/ncurses/ncurses.h" ]; then
+    NCURSES_FOUND=1
+elif command -v dpkg >/dev/null 2>&1 && dpkg -l 2>/dev/null | grep -q libncurses-dev; then
+    NCURSES_FOUND=1
+elif command -v rpm >/dev/null 2>&1 && rpm -q ncurses-devel >/dev/null 2>&1; then
+    NCURSES_FOUND=1
+fi
+
+if [ "$NCURSES_FOUND" -eq 0 ]; then
+    MISSING_DEPS="$MISSING_DEPS ncurses-dev"
 fi
 
 if [ -n "$MISSING_DEPS" ]; then
     echo "Missing dependencies:$MISSING_DEPS"
     echo ""
     echo "Install with:"
-    echo "  sudo apt update"
-    echo "  sudo apt install build-essential linux-headers-\$(uname -r) libncurses-dev"
+    if command -v apt >/dev/null 2>&1; then
+        echo "  sudo apt update"
+        echo '  sudo apt install build-essential linux-headers-$(uname -r) libncurses-dev'
+    elif command -v dnf >/dev/null 2>&1; then
+        echo "  sudo dnf install gcc make kernel-devel ncurses-devel"
+    elif command -v yum >/dev/null 2>&1; then
+        echo "  sudo yum install gcc make kernel-devel ncurses-devel"
+    elif command -v pacman >/dev/null 2>&1; then
+        echo "  sudo pacman -S base-devel linux-headers ncurses"
+    else
+        echo "  (install gcc, make, kernel headers, and ncurses development files)"
+    fi
     exit 1
 fi
 echo "  ✓ All dependencies present"
@@ -55,9 +77,10 @@ echo "  ✓ All dependencies present"
 # Build driver
 echo ""
 echo "[2/6] Building kernel module..."
-cd "$DRIVER_DIR"
-make clean > /dev/null 2>&1 || true
-if ! make; then
+if ! make -C "$DRIVER_DIR" clean >/dev/null 2>&1; then
+    echo "  (clean failed, continuing...)"
+fi
+if ! make -C "$DRIVER_DIR"; then
     echo "Error: Driver build failed"
     exit 1
 fi
@@ -66,9 +89,10 @@ echo "  ✓ rumble.ko built successfully"
 # Build tools
 echo ""
 echo "[3/6] Building userspace tools..."
-cd "$TOOLS_DIR"
-make clean > /dev/null 2>&1 || true
-if ! make; then
+if ! make -C "$TOOLS_DIR" clean >/dev/null 2>&1; then
+    echo "  (clean failed, continuing...)"
+fi
+if ! make -C "$TOOLS_DIR"; then
     echo "Error: Tools build failed"
     exit 1
 fi
@@ -117,7 +141,7 @@ echo ""
 echo "=== Setup Complete ==="
 echo ""
 
-if lsusb | grep -q "045e:02dd"; then
+if lsusb 2>/dev/null | grep -q "045e:02dd"; then
     echo "✓ Xbox 1708 controller detected!"
     echo ""
     
@@ -126,8 +150,7 @@ if lsusb | grep -q "045e:02dd"; then
         echo "✓ /dev/rumble0 exists and ready"
     else
         echo "Attempting to bind controller..."
-        cd "$SCRIPTS_DIR"
-        if ./bind.sh; then
+        if bash "$SCRIPTS_DIR/bind.sh" 2>/dev/null; then
             echo "✓ Controller bound successfully"
         else
             echo "⚠ Auto-bind failed, try unplugging and replugging controller"
@@ -142,7 +165,7 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "1. Add your user to input group (for /dev/rumble0 access):"
-echo "     sudo usermod -aG input \$USER"
+echo '     sudo usermod -aG input $USER'
 echo "     (then log out and back in)"
 echo ""
 echo "2. Test the driver:"
