@@ -295,62 +295,70 @@ static void rumble_urb_complete(struct urb *urb)
 		inp.timestamp_us = (uint64_t)ktime_to_us(ktime_get());
 
 		if (rd->idev) {
-			long deadzone = 4000;
-			long lx_val = (inp.lx > deadzone) ? inp.lx - deadzone : ((inp.lx < -deadzone) ? inp.lx + deadzone : 0);
-			long ly_val = (inp.ly > deadzone) ? inp.ly - deadzone : ((inp.ly < -deadzone) ? inp.ly + deadzone : 0);
-			long rx_val = (inp.rx > deadzone) ? inp.rx - deadzone : ((inp.rx < -deadzone) ? inp.rx + deadzone : 0);
-			long ry_val = (inp.ry > deadzone) ? inp.ry - deadzone : ((inp.ry < -deadzone) ? inp.ry + deadzone : 0);
+			/* --- Cursor movement: left stick ---
+			 * Deadzone: ignore small stick noise.
+			 * Speed multiplier 10, divided by 28767 (axis max after deadzone removal)
+			 * so full deflection gives ~10 px/report (~1250 px/s at 125 Hz).
+			 */
+			const long DZ  = 4000L;
+			const long MAX = 28767L;   /* 32767 - 4000 */
+			const long SPD = 10L;      /* cursor pixels per max-deflection report */
+			const long SSPD = 3L;     /* scroll units per max-deflection report */
 
-			long dx_scaled = lx_val * 24 + rd->residue_x;
-			long dy_scaled = -ly_val * 24 + rd->residue_y;
-			long dsx_scaled = rx_val * 1 + rd->residue_sx;
-			long dsy_scaled = ry_val * 1 + rd->residue_sy;
+			long lx = inp.lx, ly = inp.ly, rx = inp.rx, ry = inp.ry;
 
-			int move_x = dx_scaled / 28768;
-			int move_y = dy_scaled / 28768;
-			int scroll_x = dsx_scaled / 28768;
-			int scroll_y = dsy_scaled / 28768;
+			if (lx >  DZ) lx -= DZ; else if (lx < -DZ) lx += DZ; else lx = 0;
+			if (ly >  DZ) ly -= DZ; else if (ly < -DZ) ly += DZ; else ly = 0;
+			if (rx >  DZ) rx -= DZ; else if (rx < -DZ) rx += DZ; else rx = 0;
+			if (ry >  DZ) ry -= DZ; else if (ry < -DZ) ry += DZ; else ry = 0;
 
-			rd->residue_x = dx_scaled % 28768;
-			rd->residue_y = dy_scaled % 28768;
-			rd->residue_sx = dsx_scaled % 28768;
-			rd->residue_sy = dsy_scaled % 28768;
+			/* Accumulate sub-pixel residue for smooth movement */
+			long acc_x  = lx  * SPD  + rd->residue_x;
+			long acc_y  = -ly * SPD  + rd->residue_y;
+			long acc_sx = rx  * SSPD + rd->residue_sx;
+			long acc_sy = -ry * SSPD + rd->residue_sy;
 
-			if (move_x) input_report_rel(rd->idev, REL_X, move_x);
-			if (move_y) input_report_rel(rd->idev, REL_Y, move_y);
+			int move_x   = (int)(acc_x  / MAX);
+			int move_y   = (int)(acc_y  / MAX);
+			int scroll_x = (int)(acc_sx / MAX);
+			int scroll_y = (int)(acc_sy / MAX);
+
+			rd->residue_x  = (int)(acc_x  % MAX);
+			rd->residue_y  = (int)(acc_y  % MAX);
+			rd->residue_sx = (int)(acc_sx % MAX);
+			rd->residue_sy = (int)(acc_sy % MAX);
+
+			if (move_x)   input_report_rel(rd->idev, REL_X,      move_x);
+			if (move_y)   input_report_rel(rd->idev, REL_Y,      move_y);
 			if (scroll_x) input_report_rel(rd->idev, REL_HWHEEL, scroll_x);
-			if (scroll_y) input_report_rel(rd->idev, REL_WHEEL, scroll_y);
+			if (scroll_y) input_report_rel(rd->idev, REL_WHEEL,  scroll_y);
 
-			input_report_key(rd->idev, BTN_LEFT, !!(inp.buttons & RUMBLE_BTN_LB));
-			input_report_key(rd->idev, BTN_RIGHT, !!(inp.buttons & RUMBLE_BTN_RB));
-
-			{
-				bool lt_now = (inp.lt > 128);
-				if (lt_now && !rd->lt_pressed) {
-					input_report_key(rd->idev, BTN_LEFT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_LEFT, 0);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_LEFT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_LEFT, 0);
-				}
-				rd->lt_pressed = lt_now;
-
-				bool rt_now = (inp.rt > 128);
-				if (rt_now && !rd->rt_pressed) {
-					input_report_key(rd->idev, BTN_RIGHT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_RIGHT, 0);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_RIGHT, 1);
-					input_sync(rd->idev);
-					input_report_key(rd->idev, BTN_RIGHT, 0);
-				}
-				rd->rt_pressed = rt_now;
-			}
-
+			/* --- LB = left single click, RB = right single click --- */
+			bool lb_now = !!(inp.buttons & RUMBLE_BTN_LB);
+			bool rb_now = !!(inp.buttons & RUMBLE_BTN_RB);
+			input_report_key(rd->idev, BTN_LEFT,  lb_now);
+			input_report_key(rd->idev, BTN_RIGHT, rb_now);
 			input_sync(rd->idev);
+
+			/* --- LT = left double-click (on press edge only) --- */
+			bool lt_now = (inp.lt > 64);
+			if (lt_now && !rd->lt_pressed) {
+				input_report_key(rd->idev, BTN_LEFT, 1); input_sync(rd->idev);
+				input_report_key(rd->idev, BTN_LEFT, 0); input_sync(rd->idev);
+				input_report_key(rd->idev, BTN_LEFT, 1); input_sync(rd->idev);
+				input_report_key(rd->idev, BTN_LEFT, 0); input_sync(rd->idev);
+			}
+			rd->lt_pressed = lt_now;
+
+			/* --- RT = right double-click (on press edge only) --- */
+			bool rt_now = (inp.rt > 64);
+			if (rt_now && !rd->rt_pressed) {
+				input_report_key(rd->idev, BTN_RIGHT, 1); input_sync(rd->idev);
+				input_report_key(rd->idev, BTN_RIGHT, 0); input_sync(rd->idev);
+				input_report_key(rd->idev, BTN_RIGHT, 1); input_sync(rd->idev);
+				input_report_key(rd->idev, BTN_RIGHT, 0); input_sync(rd->idev);
+			}
+			rd->rt_pressed = rt_now;
 		}
 
 		spin_lock_irqsave(&rd->ring_lock, flags);
@@ -642,13 +650,16 @@ static int rumble_probe(struct usb_interface *intf,
 	if (iface_desc->desc.bInterfaceNumber != 0)
 		return -ENODEV;
 
-	/* Verify interface class/subclass/protocol for GIP */
-	if (iface_desc->desc.bInterfaceClass != USB_CLASS_VENDOR_SPEC ||
-	    iface_desc->desc.bInterfaceSubClass != 0x47 ||
-	    iface_desc->desc.bInterfaceProtocol != 0xD0) {
-		pr_warn("Interface class/subclass/protocol mismatch (expected FF/47/D0)\n");
+	/* Verify interface class is vendor-specific (Xbox controllers vary in subclass/protocol) */
+	if (iface_desc->desc.bInterfaceClass != USB_CLASS_VENDOR_SPEC) {
+		pr_warn("Not a vendor-specific interface (class=0x%02x)\n",
+			iface_desc->desc.bInterfaceClass);
 		return -ENODEV;
 	}
+	pr_info("Interface class/subclass/protocol: %02x/%02x/%02x\n",
+		iface_desc->desc.bInterfaceClass,
+		iface_desc->desc.bInterfaceSubClass,
+		iface_desc->desc.bInterfaceProtocol);
 
 	/* Find both the interrupt IN and OUT endpoints */
 	for (i = 0; i < iface_desc->desc.bNumEndpoints; i++) {
