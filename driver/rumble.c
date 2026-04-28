@@ -296,8 +296,8 @@ static void rumble_urb_complete(struct urb *urb)
 		if (b2 & BIT(1)) inp.buttons |= RUMBLE_BTN_DPAD_DOWN;
 		if (b2 & BIT(2)) inp.buttons |= RUMBLE_BTN_DPAD_LEFT;
 		if (b2 & BIT(3)) inp.buttons |= RUMBLE_BTN_DPAD_RIGHT;
-		if (b2 & BIT(4)) inp.buttons |= RUMBLE_BTN_LB;
-		if (b2 & BIT(5)) inp.buttons |= RUMBLE_BTN_RB;
+		if (b2 & BIT(4)) inp.buttons |= RUMBLE_BTN_RB;  /* bit4=RB on 0x02DD */
+		if (b2 & BIT(5)) inp.buttons |= RUMBLE_BTN_LB;  /* bit5=LB on 0x02DD */
 		if (b2 & BIT(6)) inp.buttons |= RUMBLE_BTN_LS;
 		if (b2 & BIT(7)) inp.buttons |= RUMBLE_BTN_RS;
 
@@ -829,6 +829,13 @@ static int rumble_probe(struct usb_interface *intf,
 		__set_bit(EV_KEY, rd->idev->evbit);
 		__set_bit(BTN_LEFT, rd->idev->keybit);
 		__set_bit(BTN_RIGHT, rd->idev->keybit);
+
+		/* Mark as a pointer device so libinput treats REL_X/Y as
+		 * cursor movement, not gamepad navigation. Without this,
+		 * libinput classifies the 045e:02dd VID/PID as a gamepad
+		 * and swaps/ignores mouse buttons and axes.
+		 */
+		__set_bit(INPUT_PROP_POINTER, rd->idev->propbit);
 
 		if (input_register_device(rd->idev)) {
 			input_free_device(rd->idev);
