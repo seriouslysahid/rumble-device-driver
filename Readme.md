@@ -9,9 +9,12 @@ For Normal Driver
 cd driver
 make clean && make
 sudo insmod rumble.ko
-dmesg | tail
+sudo dmesg | grep rumble
 ls /dev/rumble0
 sudo chmod 666 /dev/rumble0
+
+cd ..
+python3 run.py
 
 For Mouse Driver
 

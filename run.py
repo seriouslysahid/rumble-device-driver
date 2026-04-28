@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Load rumble driver and launch the dashboard."""
 import os
 import subprocess
 import sys
@@ -10,7 +9,6 @@ DEV_PATH = "/dev/rumble0"
 
 
 def load_driver():
-    """Load the kernel module."""
     result = subprocess.run(["lsmod"], capture_output=True, text=True)
     if "rumble" in result.stdout:
         print("Driver already loaded")
