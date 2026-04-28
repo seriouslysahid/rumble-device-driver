@@ -246,6 +246,10 @@ static void rumble_urb_complete(struct urb *urb)
 	if (urb->actual_length < 2U)
 		goto resubmit;
 
+	if (buf[0] != GIP_CMD_INPUT && buf[0] != GIP_CMD_VIRTUAL_KEY) {
+		pr_info_ratelimited("rumble: received non-input packet type 0x%02x\n", buf[0]);
+	}
+
 	/* GIP frame: byte 0 is the command type */
 	if (buf[0] == GIP_CMD_INPUT) {
 		/* Input report */
@@ -748,6 +752,27 @@ static int rumble_probe(struct usb_interface *intf,
 
 	rd->in_urb->transfer_dma   = rd->in_dma;
 	rd->in_urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
+
+	/* Send Xbox One initialization packet to start input streaming */
+	{
+		uint8_t *init_pkt = kmalloc(5, GFP_KERNEL);
+		if (init_pkt) {
+			int transferred;
+			/* Original Xbox One */
+			init_pkt[0] = 0x05; init_pkt[1] = 0x20; init_pkt[2] = 0x00; init_pkt[3] = 0x01; init_pkt[4] = 0x00;
+			usb_interrupt_msg(udev, usb_sndintpipe(udev, rd->ep_out_addr),
+					  init_pkt, 5, &transferred, 1000);
+			/* Firmware 2015 (PID 0x02DD) */
+			init_pkt[0] = 0x05; init_pkt[1] = 0x20; init_pkt[2] = 0x00; init_pkt[3] = 0x01; init_pkt[4] = 0x04;
+			usb_interrupt_msg(udev, usb_sndintpipe(udev, rd->ep_out_addr),
+					  init_pkt, 5, &transferred, 1000);
+			/* Xbox One S / Bluetooth */
+			init_pkt[0] = 0x05; init_pkt[1] = 0x20; init_pkt[2] = 0x00; init_pkt[3] = 0x0f; init_pkt[4] = 0x06;
+			usb_interrupt_msg(udev, usb_sndintpipe(udev, rd->ep_out_addr),
+					  init_pkt, 5, &transferred, 1000);
+			kfree(init_pkt);
+		}
+	}
 
 	/* Submit the URB — this starts the data stream */
 	ret = usb_submit_urb(rd->in_urb, GFP_KERNEL);
